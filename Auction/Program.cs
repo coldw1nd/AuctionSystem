@@ -36,6 +36,7 @@ catch (InvalidBidException ex)
 }
 
 auction.CloseAuction();
+Console.WriteLine(BaseAuction._TotalAuctions);
 
 void NotifyEveryone(object sender, BidEventArgs args)
 {
@@ -47,7 +48,7 @@ void NotifyEveryone(object sender, BidEventArgs args)
 
 public interface IItem
 {
-    public Guid Id { get; set; }
+    public Guid Id { get; init; }
     public string Name { get; set; }
     public decimal StartPrice { get; set; }
 }
@@ -59,34 +60,60 @@ public interface IParticipant
     public void ReceiveNotification(string message);
 }
 
-public class Car : IItem
+public abstract class BaseItem : IItem
 {
-    public Guid Id { get; set; }
+    public Guid Id { get; init; }
     public string Name { get; set; }
     public decimal StartPrice { get; set; }
-    public int Year { get; set; }
 
-    public Car(Guid id, string name, decimal startPrice, int year)
+    public virtual string GetDescription()
+    {
+        return $"Предмет: {Name}";
+    }
+
+    public BaseItem(Guid id, string name, decimal startPrice)
     {
         Id = id;
         Name = name;
         StartPrice = startPrice;
+    }
+}
+
+public interface ITaxable
+{
+    public decimal CalculateTax(decimal price);
+}
+public class Car : BaseItem, ITaxable
+{
+    public int Year { get; set; }
+
+    public decimal CalculateTax(decimal price)
+    {
+        return price * (decimal)0.1;
+    }
+
+    public override string GetDescription()
+    {
+        return $"Автомобиль:{Name}";
+    }
+
+    public Car(Guid id, string name, decimal startPrice, int year) : base(id, name, startPrice)
+    {
         Year = year;
     }
 }
 
-public class Painting : IItem
+public class Painting : BaseItem
 {
-    public Guid Id { get; set; }
-    public string Name { get; set; }
-    public decimal StartPrice { get; set; }
     public string Author { get; set; }
 
-    public Painting(Guid id, string name, decimal startPrice, string author)
+    public new string GetDescription()
     {
-        Id = id;
-        Name = name;
-        StartPrice = startPrice;
+        return $"Картина {Name} от автора {Author}";
+    }
+
+public Painting(Guid id, string name, decimal startPrice, string author) : base(id, name, startPrice)
+    {
         Author = author;
     }
 }
@@ -128,20 +155,33 @@ public class InvalidBidException : Exception
     }
 }
 
-public class Auction<T> where T : IItem
+public abstract class BaseAuction
 {
-    public T Item;
-    public List<IParticipant> Participants = new List<IParticipant>();
-    public decimal CurrentPrice { get; set; }
-    public IParticipant HighestBidder;
-    public bool IsActive { get; set; } = true;
+    public static int _TotalAuctions { get; protected set; }
+}
+
+public class Auction<T> : BaseAuction where T : IItem
+{
+    private readonly T _Item;
+    public List<IParticipant> Participants { get; private set; } = new List<IParticipant>();
+    public decimal CurrentPrice { get; private set; }
+    public IParticipant HighestBidder { get; private set; }
+    public bool IsActive { get; private set; } = true;
+    
+    public T Item
+    {
+        get { return _Item;}
+    }
+    
 
     public event EventHandler<BidEventArgs> OnBidPlaced;
     public event EventHandler<AuctionEndEventArgs> OnAuctionEnded;
 
     public Auction(T item)
     {
-        Item = item;
+        _Item = item;
+        CurrentPrice = item.StartPrice;
+        _TotalAuctions++;
     }
     
     public void RegisterParticipant(IParticipant participant)
@@ -168,8 +208,12 @@ public class Auction<T> where T : IItem
 
     public void CloseAuction()
     {
-        IsActive = !IsActive;
+        IsActive = false;
         AuctionEndEventArgs inf = new();
+        if (_Item is ITaxable itemTaxable)
+        {
+            CurrentPrice += itemTaxable.CalculateTax(CurrentPrice);
+        }
         inf.FinalAmount = CurrentPrice;
         inf.WinnerName = HighestBidder?.Name ?? "Никто";
         if (HighestBidder!=null)
