@@ -1,17 +1,22 @@
-﻿Car car1 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Hyondai Solaris", year: 2000);
-Car car2 = new(startPrice: 3000000, id:Guid.NewGuid(), name:"Hyondai i40", year: 1995);
-Painting painting1 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Крик", author: "Unknown");
-Painting  painting2 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Мона Лиза", author: "");
+﻿using System.Linq;
+
+Car car1 = new(startPrice: 1000000, id:Guid.NewGuid(), name:"Hyondai Solaris", year: 2000);
+Car car2 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Hyondai i40", year: 1995);
+Painting painting1 = new(startPrice: 1000000, id:Guid.NewGuid(), name:"Крик", author: "Unknown");
+Painting painting2 = new(startPrice: 5000000, id:Guid.NewGuid(), name:"Мона Лиза", author: "");
+
 Auction<Car> auction1 = new(car1, new AuctionSettings());
 Auction<Car> auction2 = new(car2, new AuctionSettings());
 Auction<Painting> auction3 = new(painting1, new AuctionSettings());
 Auction<Painting> auction4 = new(painting2, new AuctionSettings());
-Bidder tom = new Bidder(balance: 5000000, name: "Tom");
-Bidder david = new Bidder(balance: 7000000, name: "David");
-Bidder sam  = new Bidder(balance: 8000000, name: "Sam");
-Bidder bob  = new Bidder(balance: 5000000, name: "Bob");
-Bidder ivan  = new Bidder(balance: 1000000, name: "Ivan");
-Bidder kirill  = new Bidder(balance: 0, name: "Kirill");
+
+Bidder tom = new Bidder(balance: 7000000, name: "Tom");
+Bidder david = new Bidder(balance: 11000000, name: "David");
+Bidder sam  = new Bidder(balance: 1000000, name: "Sam");
+Bidder bob  = new Bidder(balance: 7000000, name: "Bob");
+Bidder ivan  = new Bidder(balance: 0, name: "Ivan");
+Bidder kirill  = new Bidder(balance: 10500000, name: "Kirill");
+
 auction1.RegisterParticipant(tom);
 auction1.RegisterParticipant(david);
 auction1.RegisterParticipant(sam);
@@ -25,37 +30,86 @@ auction3.RegisterParticipant(bob);
 auction3.RegisterParticipant(ivan);
 auction3.RegisterParticipant(kirill);
 auction4.RegisterParticipant(kirill);
+
 auction1.OnBidPlaced += NotifyEveryone;
-try
-{
-    auction1.PlaceBid(tom, 4500000);
-}
-catch (InvalidBidException ex)
-{
-    Console.WriteLine(ex.Message);
-}
-try
+auction2.OnBidPlaced += NotifyEveryone;
+auction3.OnBidPlaced += NotifyEveryone;
+auction4.OnBidPlaced += NotifyEveryone;
 
-{
-    auction1.PlaceBid(sam, 6000000);
-}
-catch (InvalidBidException ex)
-{
-    Console.WriteLine(ex.Message);
-    
-}
+List<BidRecord> bidHistory = new();
+List<IItem> allItems = new();
+List<IParticipant> allBidders = new();
+List<IParticipant> activeBidders = new();
 
-try
-{
-    auction1.PlaceBid(david, 6000000);
-}
-catch (InvalidBidException ex)
-{
-    Console.WriteLine(ex.Message);
-}
+allItems.Add(car1);
+allItems.Add(car2);
+allItems.Add(painting1);
+allItems.Add(painting2);
+
+allBidders.Add(tom);
+allBidders.Add(david);
+allBidders.Add(sam);
+allBidders.Add(bob);
+allBidders.Add(ivan);
+allBidders.Add(kirill);
+
+activeBidders.Add(tom);
+activeBidders.Add(david);
+activeBidders.Add(sam);
+activeBidders.Add(bob);
+activeBidders.Add(kirill);
+
+TryPlaceBid(auction1, tom, 4000000, bidHistory);
+TryPlaceBid(auction1, sam, 5000000, bidHistory);
+TryPlaceBid(auction1, david, 7000000, bidHistory);
+TryPlaceBid(auction1, kirill, 3000000, bidHistory);
+TryPlaceBid(auction1, david, 8000000, bidHistory);
+TryPlaceBid(auction1, tom, 9000000, bidHistory);
+TryPlaceBid(auction2, david, 3000000, bidHistory);
+TryPlaceBid(auction2, ivan, 6000000, bidHistory);
+TryPlaceBid(auction2, david, 4000000, bidHistory);
+TryPlaceBid(auction2, kirill, 9000000, bidHistory);
+TryPlaceBid(auction3, tom, 4000000, bidHistory);
+TryPlaceBid(auction3, sam, 5000000, bidHistory);
+TryPlaceBid(auction3, tom, 4010000, bidHistory);
+TryPlaceBid(auction2, kirill, 8000000, bidHistory);
+TryPlaceBid(auction2, ivan, 9000000, bidHistory);
+TryPlaceBid(auction3, david, 9500000, bidHistory);
+TryPlaceBid(auction1, kirill, 9500000, bidHistory);
+TryPlaceBid(auction1, david, 10000000, bidHistory);
+TryPlaceBid(auction1, kirill, 10100000, bidHistory);
+TryPlaceBid(auction2, kirill, 10100000, bidHistory);
+
+var topBidders = allBidders.OrderByDescending(b => b.Balance).Take(2);
+var sum = allBidders.Aggregate(0m, (sum, bidder)=>sum+bidder.Balance);
+var priceGroups = allItems.GroupBy(item => item.StartPrice < 2000000);
+var notActiveBidders = allBidders.Except(activeBidders);
+var bidsWithBalance = allBidders.Join(bidHistory, b => b.Name, rec => rec.bidderName, (b, rec) => new{b.Name, b.Balance, Amount=rec.amount});
+var bidInfo = allItems
+    .GroupJoin(bidHistory, item => item.Name, bid => bid.itemName, (item, bids) => new { ItemName = item.Name, Bidders = bids
+        .Select(bid => bid.bidderName) });
 
 auction1.CloseAuction();
-Console.WriteLine(BaseAuction.TotalAuctions);
+auction2.CloseAuction();
+auction3.CloseAuction();
+auction4.CloseAuction();
+
+foreach (var group in priceGroups)
+{
+    Console.WriteLine(group.Key ? "Дешевле 2 миллионов:" : "2 миллиона или дороже:");
+    foreach (var item in group)
+    {
+        Console.WriteLine(item.Name);
+    }
+    Console.WriteLine();
+}
+
+foreach (var bid in bidsWithBalance)
+{
+    Console.WriteLine($"Участник {bid.Name} имеет баланс {bid.Balance} и сделал ставку на сумму {bid.Amount}");
+}
+
+Console.WriteLine($"Всего проведено аукционов: {BaseAuction.TotalAuctions}");
 
 void NotifyEveryone(object sender, BidEventArgs args)
 {
@@ -65,6 +119,26 @@ void NotifyEveryone(object sender, BidEventArgs args)
     }
 }
 
+void TryPlaceBid<T>(Auction<T> auction, IParticipant bidder, decimal amount, List<BidRecord> history) where T : IItem
+{
+    bool success=false;
+    try
+    {
+        auction.PlaceBid(bidder, amount);
+        success = true;
+    }
+    catch(InvalidBidException ex)
+    {
+        success = false;
+        Console.WriteLine($"Ошибка: {ex.Message}");
+    }
+    finally
+    {
+        history.Add(new(bidder.Name, amount, success, auction.Item.Name));
+    }
+}
+
+public record class BidRecord(string bidderName, decimal amount, bool isSuccess, string itemName);
 public interface IItem
 {
     public Guid Id { get; init; }
