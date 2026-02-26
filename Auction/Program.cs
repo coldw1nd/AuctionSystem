@@ -150,6 +150,7 @@ public interface IParticipant
 {
     public string Name { get; set; }
     public decimal Balance { get; set; }
+    public decimal ReservedFunds { get; set; }
     public void ReceiveNotification(string message);
 }
 
@@ -158,10 +159,12 @@ public class Bidder : IParticipant
     public string Name { get; set; }
     public decimal Balance { get; set; }
 
+    public decimal ReservedFunds { get; set; } = 0;
+
     public Bidder(string name, decimal balance)
     {
-        this.Name = name;
-        this.Balance = balance;
+        Name = name;
+        Balance = balance;
     }
 
     public void ReceiveNotification(string message)
@@ -191,18 +194,16 @@ public abstract class BaseItem : IItem
 
 public interface ITaxable
 {
-    public void CalculateTax(ref decimal balance, out decimal taxAmount);
+    public decimal CalculateTax();
 }
 public class Car : BaseItem, ITaxable
 {
     public int Year { get; set; }
-
-    public void CalculateTax(ref decimal balance, out decimal taxAmount)
+    public decimal CalculateTax()
     {
-        taxAmount = StartPrice * (decimal)0.1;
-        balance -= taxAmount;
+        decimal taxAmount = StartPrice * (decimal)0.1;
+        return taxAmount;
     }
-
     public override string GetDescription()
     {
         return $"Автомобиль:{Name}";
@@ -309,8 +310,13 @@ public class Auction<T> : BaseAuction where T : IItem
     
     public void PlaceBid(IParticipant participant, decimal bidAmount)
     {
-        if (IsActive && bidAmount<=participant.Balance && bidAmount>CurrentPrice && bidAmount-CurrentPrice>=_settings.MinBidStep)
+        if (IsActive && bidAmount<=participant.Balance && bidAmount>CurrentPrice && bidAmount-CurrentPrice>=_settings.MinBidStep && (participant.Balance-participant.ReservedFunds)>=bidAmount)
         {
+            participant.ReservedFunds += bidAmount;
+            if (HighestBidder!=null)
+            {
+                HighestBidder.ReservedFunds -= CurrentPrice;
+            }
             CurrentPrice = bidAmount;
             HighestBidder = participant;
             BidEventArgs info = new();
@@ -326,18 +332,15 @@ public class Auction<T> : BaseAuction where T : IItem
 
     public void CloseAuction()
     {
+        if (!IsActive) return;
         IsActive = false;
         if (HighestBidder != null)
         {
             decimal currentBalance = HighestBidder.Balance;
-            if (_Item is ITaxable taxableItem)
-            {
-                taxableItem.CalculateTax(ref currentBalance, out var taxAmount);
-            }
             HighestBidder.Balance = currentBalance;
             HighestBidder.Balance -= CurrentPrice;
+            HighestBidder.ReservedFunds -= CurrentPrice;
         }
-
         AuctionEndEventArgs inf = new();
         inf.FinalAmount = CurrentPrice;
         inf.WinnerName = HighestBidder?.Name ?? "Никто";
