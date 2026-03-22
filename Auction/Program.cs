@@ -1,4 +1,6 @@
 ﻿using System.Linq;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 
 Car car1 = new(startPrice: 1000000, id:Guid.NewGuid(), name:"Hyondai Solaris", year: 2000);
 Car car2 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Hyondai i40", year: 1995);
@@ -53,11 +55,15 @@ allBidders.Add(bob);
 allBidders.Add(ivan);
 allBidders.Add(kirill);
 
+ProccessRegistration(allBidders);
+
 activeBidders.Add(tom);
 activeBidders.Add(david);
 activeBidders.Add(sam);
 activeBidders.Add(bob);
 activeBidders.Add(kirill);
+
+RunLiveBoard(tom, david, sam);
 
 TryPlaceBid(auction1, tom, 4000000, bidHistory);
 TryPlaceBid(auction1, sam, 5000000, bidHistory);
@@ -89,6 +95,14 @@ var bidInfo = allItems
     .GroupJoin(bidHistory, item => item.Name, bid => bid.itemName, (item, bids) => new { ItemName = item.Name, Bidders = bids
         .Select(bid => bid.bidderName) });
 
+ViewTracker tracker = new ViewTracker();
+tracker.ViewItem(car1);
+tracker.ViewItem(car2);
+tracker.ViewItem(painting1);
+tracker.ViewItem(painting2);
+
+AnalyzeHistory(bidHistory);
+
 auction1.CloseAuction();
 auction2.CloseAuction();
 auction3.CloseAuction();
@@ -110,6 +124,24 @@ foreach (var bid in bidsWithBalance)
 }
 
 Console.WriteLine($"Всего проведено аукционов: {BaseAuction.TotalAuctions}");
+
+void AnalyzeHistory(List<BidRecord> history)
+{
+    List<BidRecord> validBids = new List<BidRecord>(100);
+    validBids.AddRange(history);
+    validBids.RemoveAll(record => record.isSuccess == false);
+    validBids.Sort(new BidRecordComparer());
+    int topCount = Math.Min(3, validBids.Count);
+    List<BidRecord> topBids = validBids.GetRange(0, topCount);
+    BidRecord[] topBidsArray = new BidRecord[topCount];
+    topBids.CopyTo(topBidsArray);
+
+    foreach (var bid in topBidsArray)
+    {
+        Console.WriteLine($"Лот: {bid.itemName}, Участник: {bid.bidderName}, Сумма: {bid.amount}");
+    }
+
+}
 
 void NotifyEveryone(object sender, BidEventArgs args)
 {
@@ -138,7 +170,139 @@ void TryPlaceBid<T>(Auction<T> auction, IParticipant bidder, decimal amount, Lis
     }
 }
 
+void ProccessRegistration(List<IParticipant> bidders)
+{
+    Queue<IParticipant> queue = new Queue<IParticipant>(bidders);
+    Stack<IParticipant> rejectedBidders = new Stack<IParticipant>();
+    Dictionary<string, List<IParticipant>> approvedCategories = new Dictionary<string, List<IParticipant>>();
+    while (queue.TryDequeue(out var pariticipant))
+    {
+        if (pariticipant.Balance <= 0)
+        {
+            rejectedBidders.Push(pariticipant);
+        }
+        else
+        {
+            string category = pariticipant.Balance > 5000000 ? "VIP" : "Standard";
+            if (!approvedCategories.ContainsKey(category))
+            {
+                approvedCategories.Add(category, new List<IParticipant>());
+            }
+            approvedCategories[category].Add(pariticipant);
+        }
+    }
+    Console.WriteLine("Отклоненные участники:");
+    while (rejectedBidders.TryPop(out var rejectedBidder))
+    {
+        Console.WriteLine($"Охрана выводит: {rejectedBidder.Name}");
+    }
+}
+
+void RunLiveBoard(Bidder tom, Bidder david, Bidder sam)
+{
+    ObservableCollection<IParticipant> vipBoard = new ObservableCollection<IParticipant>() {tom, david};
+    vipBoard.CollectionChanged += VipBoard_CollectionChanged;
+    vipBoard.Add(sam);
+    vipBoard[0] = new Bidder("Elon Musk", 999999999);
+    vipBoard.Move(1, 0);
+    vipBoard.RemoveAt(2);
+    vipBoard.Clear();
+}
+
+void VipBoard_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+{
+    switch (e.Action)
+    {
+        case NotifyCollectionChangedAction.Add:
+            if (e.NewItems?[0] is IParticipant addedParticipant)
+            {
+                Console.WriteLine($"$[ADD] {addedParticipant.Name} появился на табло!");
+            }
+
+            break;
+        
+        case NotifyCollectionChangedAction.Remove:
+            if (e.OldItems?[0] is IParticipant removedParticipant)
+            {
+                Console.WriteLine($"[REMOVE] {removedParticipant.Name} покинул табло!");
+            }
+            break;
+        
+        case NotifyCollectionChangedAction.Replace:
+            if (e.OldItems?[0] is IParticipant oldP && e.NewItems?[0] is IParticipant newP)
+            {
+                Console.WriteLine($"[REPLACE] {oldP.Name} был заменен на {newP.Name}");
+            }
+            break;
+        
+        case NotifyCollectionChangedAction.Move:
+            if (e.NewItems?[0] is IParticipant movedP)
+            {
+                Console.WriteLine($"[MOVE] {movedP.Name} был перемещен на позицию {e.NewStartingIndex} с позиции {e.OldStartingIndex}");
+            }
+            break;
+        
+        case NotifyCollectionChangedAction.Reset:
+            Console.WriteLine("Табло сброшено");
+            break;
+    }
+}
+
 public record class BidRecord(string bidderName, decimal amount, bool isSuccess, string itemName);
+
+class ViewTracker
+{
+    private readonly int _limit = 3;
+    private readonly LinkedList<IItem> _historyList = new LinkedList<IItem>();
+    private readonly Dictionary<Guid, LinkedListNode<IItem>> _cache = new Dictionary<Guid, LinkedListNode<IItem>>();
+
+    public void ViewItem(IItem item)
+    {
+        Console.WriteLine($"Просматриваем лот {item.Name}");
+        if (_cache.ContainsKey(item.Id))
+        {
+            var node = _cache[item.Id];
+            _historyList.Remove(node);
+            _historyList.AddFirst(node);
+        }
+        else
+        {
+            if (_historyList.Count >= _limit)
+            {
+                var oldestNode = _historyList.Last;
+                if (oldestNode != null)
+                {
+                    _cache.Remove(oldestNode.Value.Id);
+                    _historyList.RemoveLast();
+                }
+            }
+
+            var newNode = new LinkedListNode<IItem>(item);
+            _historyList.AddFirst(newNode);
+            _cache.Add(item.Id, newNode);
+        }
+    }
+}
+
+class BidRecordComparer : IComparer<BidRecord>
+{
+    public int Compare(BidRecord? x, BidRecord? y)
+    {
+        if (x == null || y == null)
+        {
+            return 0;
+        }
+
+        int amountComparison = y.amount.CompareTo(x.amount);
+        if (amountComparison != 0)
+        {
+            return amountComparison;
+        }
+
+        return x.bidderName.CompareTo(y.bidderName);
+    }
+}
+
 public interface IItem
 {
     public Guid Id { get; init; }
