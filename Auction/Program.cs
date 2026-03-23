@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System.Collections;
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 
@@ -102,6 +103,27 @@ tracker.ViewItem(painting1);
 tracker.ViewItem(painting2);
 
 AnalyzeHistory(bidHistory);
+Console.WriteLine("3 успешные ставки:");
+foreach (var bid in bidHistory.GetSuccessfulBids(3))
+{
+    Console.WriteLine($"Лот: {bid.itemName}, Участник: {bid.bidderName}, Сумма: {bid.amount}");
+}
+
+ReadOnlySpan<BidRecord> historySpan = bidHistory.ToArray().AsSpan();
+if (historySpan.Length >= 5)
+{
+    ReadOnlySpan<BidRecord> lastFiveBids = historySpan[^5..];
+    decimal lastFiveSum = 0m;
+    foreach (var bid in lastFiveBids)
+    {
+        lastFiveSum += bid.amount;
+    }
+    Console.WriteLine($"Сумма последних 5 попыток ставок: {lastFiveSum}");
+}
+else
+{
+    Console.WriteLine("Недостаточно ставок в истории для анализа последних 5");
+}
 
 auction1.CloseAuction();
 auction2.CloseAuction();
@@ -429,7 +451,53 @@ public abstract class BaseAuction
 }
 
 public delegate void Notify(object sender, BidEventArgs args);
-public class Auction<T> : BaseAuction where T : IItem
+
+public class AuctionParticipantEnumerator: IEnumerator<IParticipant>
+{
+    private readonly List<IParticipant> _participants;
+    private int position = -1;
+    public AuctionParticipantEnumerator(List<IParticipant> participants)
+    {
+        _participants = participants;
+    }
+    public IParticipant Current
+    {
+        get
+        {
+            if (position == -1 || position >= _participants.Count)
+            {
+                throw new InvalidOperationException();
+            }
+
+            return _participants[position];
+        }
+    }
+    object IEnumerator.Current
+    {
+        get
+        {
+            return Current;
+        }
+    }
+
+    public bool MoveNext()
+    {
+        if (position < _participants.Count - 1)
+        {
+            return true;
+        }
+        
+        return false;
+    }
+    public void Reset()
+    {
+        position = -1;
+    }
+
+    public void Dispose(){ }
+}
+
+public class Auction<T> : BaseAuction, IEnumerable<IParticipant> where T : IItem
 {
     private readonly T _Item;
     private readonly AuctionSettings _settings;
@@ -509,5 +577,36 @@ public class Auction<T> : BaseAuction where T : IItem
         inf.FinalAmount = CurrentPrice;
         inf.WinnerName = HighestBidder?.Name ?? "Никто";
         OnAuctionEnded?.Invoke(this,inf);
+    }
+
+    public IEnumerator<IParticipant> GetEnumerator()
+    {
+        return new AuctionParticipantEnumerator(Participants);
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+}
+
+public static class BidRecordExtension
+{
+    public static IEnumerable<BidRecord> GetSuccessfulBids(this IEnumerable<BidRecord> history, int maxCount)
+    {
+        int count = 0;
+        foreach (BidRecord bidRecord in history)
+        {
+            if (count >= maxCount)
+            {
+                yield break;
+            }
+
+            if (bidRecord.isSuccess)
+            {
+                yield return bidRecord;
+                count++;
+            }
+        }
     }
 }
