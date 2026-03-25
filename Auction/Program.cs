@@ -2,14 +2,18 @@
 using System.Linq;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Globalization;
 
-Car car1 = new(startPrice: 1000000, id:Guid.NewGuid(), name:"Hyondai Solaris", year: 2000);
-Car car2 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Hyondai i40", year: 1995);
+Car car1 = new(startPrice: 1000000, id:Guid.NewGuid(), name:"Hyondai Solaris", productionDate: new DateOnly(2000, 5, 10));
+Car car2 = new(startPrice: 4000000, id:Guid.NewGuid(), name:"Hyondai i40", productionDate: new DateOnly(1995, 11, 25));
 Painting painting1 = new(startPrice: 1000000, id:Guid.NewGuid(), name:"Крик", author: "Unknown");
 Painting painting2 = new(startPrice: 5000000, id:Guid.NewGuid(), name:"Мона Лиза", author: "");
 
-Auction<Car> auction1 = new(car1, new AuctionSettings());
-Auction<Car> auction2 = new(car2, new AuctionSettings());
+AuctionSettings defaultSettings = new AuctionSettings(minBidStep: 100000, DateTime.Now.AddDays(1), duration: new TimeOnly(2, 30)); 
+Auction<Car> auction1 = new(car1, defaultSettings);
+Auction<Car> auction2 = new(car2, defaultSettings);
 Auction<Painting> auction3 = new(painting1, new AuctionSettings());
 Auction<Painting> auction4 = new(painting2, new AuctionSettings());
 
@@ -123,6 +127,41 @@ if (historySpan.Length >= 5)
 else
 {
     Console.WriteLine("Недостаточно ставок в истории для анализа последних 5");
+}
+
+string userInputDate = "Дата торгов: 25-12-2024 18:30";
+string cleanDateStr = userInputDate.Substring(userInputDate.IndexOf(':') + 2);
+string expectedFormat = "dd-MM-yyyy HH:mm";
+if (DateTime.TryParseExact(cleanDateStr, expectedFormat, CultureInfo.InvariantCulture, DateTimeStyles.None,
+        out DateTime parsedDate))
+{
+    Console.WriteLine($"Распознанная дата: {parsedDate.ToString("O")}");
+}
+
+string originalText = "100000";
+byte[] originalBytes = Encoding.UTF8.GetBytes(originalText);
+string base64Result = Convert.ToBase64String(originalBytes);
+byte[] decodedBytes = Convert.FromBase64String(base64Result);
+string decodedString = Encoding.UTF8.GetString(decodedBytes);
+decimal finalDecodedBid = Convert.ToDecimal(decodedString);
+
+int number = 1000000;
+string hexString = Convert.ToString(number, 16);
+int backToNumber = Convert.ToInt32(hexString, 16);
+
+Console.WriteLine($"Сертификат картины 1: {painting1.AuthenticityCertificate.Value}");
+Console.WriteLine($"Сертификат картины 1: {painting1.AuthenticityCertificate.Value}");
+
+Console.WriteLine($"Налог на автомобиль {car1.Name} равен {car1.CalculateTax()}");
+
+string rawServerData = "   [VIP] tom ; BID: 5000000 ; STATUS: success   ";
+string trimmedData = rawServerData.Trim();
+string[] dataParts = trimmedData.Split(';');
+string roleAndName = dataParts[0].ToUpper().Trim();
+
+if (roleAndName.StartsWith("[VIP]"))
+{
+    Console.WriteLine($"VIP клиент: {roleAndName}");
 }
 
 auction1.CloseAuction();
@@ -384,27 +423,31 @@ public interface ITaxable
 }
 public class Car : BaseItem, ITaxable
 {
-    public int Year { get; set; }
+    public DateOnly ProductionDate { get;set; }
     public decimal CalculateTax()
     {
-        decimal taxAmount = StartPrice * (decimal)0.1;
-        return taxAmount;
+        decimal baseTax = StartPrice * 0.1m;
+        decimal agePenaltyMultiplier = (decimal)(Math.Pow(1.05, 3));
+        decimal totalTax = baseTax * agePenaltyMultiplier;
+        decimal roundedTax = Math.Ceiling(totalTax);
+        decimal clampedTax = Math.Clamp(roundedTax, 50000m, 500000m);
+        return clampedTax;
     }
     public override string GetDescription()
     {
-        return $"Автомобиль:{Name}";
+        return $"Автомобиль:{Name}, Произведен: {ProductionDate.ToShortDateString()}";
     }
 
-    public Car(Guid id, string name, decimal startPrice, int year) : base(id, name, startPrice)
+    public Car(Guid id, string name, decimal startPrice, DateOnly productionDate) : base(id, name, startPrice)
     {
-        Year = year;
+        ProductionDate = productionDate;
     }
 }
 
 public class Painting : BaseItem
 {
     public string Author { get; set; }
-
+    public Lazy<string> AuthenticityCertificate { get; private set; }
     public new string GetDescription()
     {
         return $"Картина {Name} от автора {Author}";
@@ -413,6 +456,11 @@ public class Painting : BaseItem
 public Painting(Guid id, string name, decimal startPrice, string author) : base(id, name, startPrice)
     {
         Author = author;
+        AuthenticityCertificate = new Lazy<string>(() =>
+        {
+            Console.WriteLine($"Проводится долгая экспертиза картины {Name}");
+            return $"СЕРТИФИКАТ №{Guid.NewGuid().ToString().Substring(0, 8).ToUpper()} - ПОДЛИННЫЙ";
+        });
     }
 }
 
@@ -439,10 +487,14 @@ public class InvalidBidException : Exception
 public struct AuctionSettings
 {
     public decimal MinBidStep { get; init; } = 100000;
+    public DateTime StartDate { get; init; }
+    public TimeOnly Duration { get; init; } 
 
-    public AuctionSettings(decimal minBidStep)
+    public AuctionSettings(decimal minBidStep, DateTime startDate, TimeOnly duration)
     {
         MinBidStep = minBidStep;
+        StartDate = startDate;
+        Duration = duration;
     }
 }
 public abstract class BaseAuction
